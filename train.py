@@ -108,10 +108,10 @@ for fold, (train_ids, val_ids) in enumerate(kfold.split(dataset)):
     # Init model, optimizer, loss function
     model = FinBERTRegressor(num_sectors=len(sector2id)).to(device)
     
-    # FIXED: Better optimizer settings
+    # Optimizer settings
     optimizer = torch.optim.AdamW(model.parameters(), lr=5e-5, weight_decay=0.001)
     
-    # FIXED: More robust loss function
+    # Robust loss function
     loss_fn = torch.nn.HuberLoss(delta=1.0)  # More robust than MSE
     
     # FIXED: Add learning rate scheduler
@@ -141,7 +141,7 @@ for fold, (train_ids, val_ids) in enumerate(kfold.split(dataset)):
             optimizer.zero_grad()
             loss.backward()
             
-            # FIXED: Add gradient clipping for stability
+            # Add gradient clipping for stability
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             
             optimizer.step()
@@ -170,7 +170,7 @@ for fold, (train_ids, val_ids) in enumerate(kfold.split(dataset)):
         val_loss = val_loss / len(val_loader)
         fold_val_losses.append(val_loss)
         
-        # FIXED: Update learning rate based on validation loss
+        # Update learning rate based on validation loss
         scheduler.step(val_loss)
         
         # Only print every 2 epochs to reduce noise

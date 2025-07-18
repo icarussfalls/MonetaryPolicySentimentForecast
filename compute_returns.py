@@ -37,7 +37,7 @@ index_data = pd.concat(index_data_list, ignore_index=True)
 
 results = []
 
-# Fix column name: strip spaces and check for correct column
+# Strip spaces and check for correct column
 pub_dates.columns = pub_dates.columns.str.strip()
 if 'PublishedDate' not in pub_dates.columns:
     # Try to find a similar column

@@ -47,5 +47,5 @@ for fname in sorted(os.listdir(pdf_folder)):
         emb = get_report_embedding(text)
         report_embeddings[fy] = emb
 
-# Optional: save
+# Save
 np.save("report_embeddings.npy", report_embeddings)

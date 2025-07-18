@@ -201,8 +201,6 @@ def analyze_influential_sentences(input_path, model, sector2id, top_n=10, is_tex
     print("\nSample of extracted text:")
     print(text[:500] + "...\n")
     
-    # Rest of the function remains the same...
-    
     # Split the text into sentences
     sentences = nltk.sent_tokenize(text)
     print(f"Found {len(sentences)} sentences in the report")
