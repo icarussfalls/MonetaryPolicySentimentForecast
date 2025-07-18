@@ -213,13 +213,8 @@ K_FOLDS = 5                # Cross-validation folds
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License
 
-## 📞 Contact
-
-- **Author**: [Your Name]
-- **Email**: [your.email@domain.com]
-- **LinkedIn**: [Your LinkedIn Profile]
 
 ## 🙏 Acknowledgments
 
