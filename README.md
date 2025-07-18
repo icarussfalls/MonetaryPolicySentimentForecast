@@ -42,8 +42,8 @@ Loss Function: Huber Loss (robust to outliers)
 
 ### Installation
 ```bash
-git clone https://github.com/yourusername/monetary-policy-forecasting.git
-cd monetary-policy-forecasting
+git clone https://github.com/icarussfalls/MonetaryPolicySentimentForecast
+cd MonetaryPolicySentimentForecast
 pip install -r requirements.txt
 ```
 
