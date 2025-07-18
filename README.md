@@ -188,27 +188,6 @@ Recent updates have significantly improved stability:
 - [ ] **Sector Hierarchies**: Model inter-sector relationships
 - [ ] **Risk Metrics**: Add volatility and downside risk predictions
 
-## 📚 Usage Examples
-
-### **Predict from New Text**
-```python
-from inference import PolicyPredictor
-
-predictor = PolicyPredictor("policy_return_model.pt")
-predictions = predictor.predict("New monetary policy announcement...")
-
-for sector, return_pred in predictions.items():
-    print(f"{sector}: {return_pred:.3f}")
-```
-
-### **Analyze Specific Sector**
-```python
-from sentence_analysis import analyze_sector_influences
-
-influences = analyze_sector_influences("BANKING", model, embeddings)
-print(f"Top positive drivers: {influences['positive'][:3]}")
-print(f"Top negative drivers: {influences['negative'][:3]}")
-```
 
 ## 🤝 Contributing
 
@@ -222,11 +201,6 @@ print(f"Top negative drivers: {influences['negative'][:3]}")
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 👨‍💻 Author
-
-**[Your Name]**
-- GitHub: [@yourusername](https://github.com/yourusername)
-- Email: your.email@example.com
 
 ## 🙏 Acknowledgments
 
