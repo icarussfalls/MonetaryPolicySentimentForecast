@@ -70,12 +70,7 @@ python train.py
 # Trains FinBERT regression model
 # Saves best model and sector mappings
 ```
-
-#### 4. Generate Predictions
-```python
-python inference.py --text "Your monetary policy text here"
-# Returns sector-specific return predictions
-```
+ python3 predict.py --text /Users/icarus/Desktop/event_driven/monetary_policy/policy_new.txt --scale 1 --analyze
 
 #### 5. Analyze Influential Sentences
 ```python
