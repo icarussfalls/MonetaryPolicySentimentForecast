@@ -8,6 +8,24 @@ from sklearn.model_selection import KFold
 import matplotlib.pyplot as plt
 import shap
 
+import random
+import os
+
+def set_seeds(seed):
+    """Set seeds for reproducible results"""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    os.environ['PYTHONHASHSEED'] = str(seed)
+
+# Set seeds for reproducibility
+set_seeds(42)
+
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Load and preprocess data
@@ -64,9 +82,18 @@ val_losses = []
 best_model = None
 best_val_loss = float('inf')
 
+# Store trained models and predictions during the original CV loop
+trained_models = []
+fold_predictions = []
+fold_actuals = []
+
+# Replace the training loop section with this improved version:
 for fold, (train_ids, val_ids) in enumerate(kfold.split(dataset)):
     print(f"\nFOLD {fold+1}/{k_folds}")
     print('-' * 30)
+    
+    # Set seed for this fold
+    set_seeds(42 + fold)
     
     # Sample elements randomly from a given list of ids, no replacement
     train_sampler = SubsetRandomSampler(train_ids)
@@ -80,8 +107,17 @@ for fold, (train_ids, val_ids) in enumerate(kfold.split(dataset)):
     
     # Init model, optimizer, loss function
     model = FinBERTRegressor(num_sectors=len(sector2id)).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5, weight_decay=0.01)
-    loss_fn = torch.nn.MSELoss()
+    
+    # FIXED: Better optimizer settings
+    optimizer = torch.optim.AdamW(model.parameters(), lr=5e-5, weight_decay=0.001)
+    
+    # FIXED: More robust loss function
+    loss_fn = torch.nn.HuberLoss(delta=1.0)  # More robust than MSE
+    
+    # FIXED: Add learning rate scheduler
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='min', factor=0.5, patience=2
+    )
     
     # Lists to track per-epoch losses
     fold_train_losses = []
@@ -104,6 +140,10 @@ for fold, (train_ids, val_ids) in enumerate(kfold.split(dataset)):
             # Backward pass and optimize
             optimizer.zero_grad()
             loss.backward()
+            
+            # FIXED: Add gradient clipping for stability
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            
             optimizer.step()
             
             train_loss += loss.item()
@@ -130,7 +170,13 @@ for fold, (train_ids, val_ids) in enumerate(kfold.split(dataset)):
         val_loss = val_loss / len(val_loader)
         fold_val_losses.append(val_loss)
         
-        print(f"Epoch {epoch+1}/{num_epochs} - Train loss: {train_loss:.6f}, Val loss: {val_loss:.6f}")
+        # FIXED: Update learning rate based on validation loss
+        scheduler.step(val_loss)
+        
+        # Only print every 2 epochs to reduce noise
+        if (epoch + 1) % 2 == 0 or epoch == 0:
+            current_lr = optimizer.param_groups[0]['lr']
+            print(f"Epoch {epoch+1}/{num_epochs} - Train: {train_loss:.6f}, Val: {val_loss:.6f}, LR: {current_lr:.2e}")
     
     # Store the fold results
     train_losses.append(fold_train_losses)
@@ -140,8 +186,30 @@ for fold, (train_ids, val_ids) in enumerate(kfold.split(dataset)):
     final_val_loss = fold_val_losses[-1]
     if final_val_loss < best_val_loss:
         best_val_loss = final_val_loss
-        best_model = model.state_dict()
+        best_model = model.state_dict().copy()  # Make a copy!
         print(f"New best model found (val_loss: {best_val_loss:.6f})")
+
+    # SAVE the trained model immediately after training
+    torch.save(model.state_dict(), f"policy_return_model_fold_{fold}.pt")
+    print(f"Saved model for fold {fold+1}")
+    
+    # Get validation predictions for this fold (for metrics)
+    model.eval()
+    fold_preds = []
+    fold_acts = []
+    
+    with torch.no_grad():
+        for report_emb, sector_id, targets in val_loader:
+            report_emb = report_emb.to(device)
+            sector_id = sector_id.to(device)
+            targets = targets.to(device)
+            
+            preds = model(report_emb, sector_id)
+            fold_preds.extend(preds.cpu().numpy())
+            fold_acts.extend(targets.cpu().numpy())
+    
+    fold_predictions.extend(fold_preds)
+    fold_actuals.extend(fold_acts)
 
 # Calculate and print average results across folds
 avg_train_loss = np.mean([losses[-1] for losses in train_losses])
@@ -174,187 +242,23 @@ plt.close()
 
 print("Cross-validation results plot saved to 'cross_validation_results.png'")
 
-# Save models for all folds
-print("\nSaving models for all folds...")
-for fold_idx in range(k_folds):
-    # Initialize a new model
-    fold_model = FinBERTRegressor(num_sectors=len(sector2id)).to(device)
-    
-    # Get the ids for this fold
-    _, (train_ids, val_ids) = list(enumerate(kfold.split(dataset)))[fold_idx]
-    
-    # Define data loaders
-    train_sampler = SubsetRandomSampler(train_ids)
-    train_loader = DataLoader(dataset, batch_size=min(8, len(train_ids)), sampler=train_sampler)
-    
-    # Train the model
-    optimizer = torch.optim.AdamW(fold_model.parameters(), lr=2e-5)
-    for epoch in range(num_epochs):
-        fold_model.train()
-        for report_emb, sector_id, targets in train_loader:
-            report_emb, sector_id, targets = report_emb.to(device), sector_id.to(device), targets.to(device)
-            optimizer.zero_grad()
-            preds = fold_model(report_emb, sector_id)
-            loss = torch.nn.MSELoss()(preds, targets)
-            loss.backward()
-            optimizer.step()
-    
-    # Save the model
-    torch.save(fold_model.state_dict(), f"policy_return_model_fold_{fold_idx}.pt")
-    print(f"Saved model for fold {fold_idx+1}")
+# Now use the stored predictions instead of recomputing
+all_preds = np.array(fold_predictions)
+all_actuals = np.array(fold_actuals)
 
-# Also save the best model
-torch.save(best_model, "policy_return_model.pt")
-
-# Save sector mappings
-np.save("sector_mapping.npy", sector2id)
-print("Sector mapping saved for prediction!")
-
-print("\nCalculating combined directional accuracy across all folds...")
-
-# Initialize containers for all predictions and actual values
-all_preds = []
-all_actuals = []
-
-# Run predictions on validation sets for each fold
-for fold_idx, (train_ids, val_ids) in enumerate(kfold.split(dataset)):
-    # Load the trained model for this fold
-    fold_model = FinBERTRegressor(num_sectors=len(sector2id)).to(device)
-    fold_model.load_state_dict(torch.load(f"policy_return_model_fold_{fold_idx}.pt", map_location=device))
-    fold_model.eval()
-    
-    # Create validation loader for this fold
-    val_sampler = SubsetRandomSampler(val_ids)
-    val_loader = DataLoader(dataset, batch_size=min(8, len(val_ids)), sampler=val_sampler)
-    
-    # Get predictions
-    with torch.no_grad():
-        for report_emb, sector_id, targets in val_loader:
-            report_emb = report_emb.to(device)
-            sector_id = sector_id.to(device)
-            targets = targets.to(device)
-            
-            # Get predictions
-            preds = fold_model(report_emb, sector_id)
-            
-            # Store predictions and actual values
-            all_preds.extend(preds.cpu().numpy())
-            all_actuals.extend(targets.cpu().numpy())
-
-# Convert to numpy arrays
-all_preds = np.array(all_preds)
-all_actuals = np.array(all_actuals)
-
-# Calculate directional accuracy (positive vs negative)
+# Calculate metrics on the ORIGINAL training results
 directional_correct = ((all_preds > 0) == (all_actuals > 0)).mean()
-print(f"Combined directional accuracy across all folds: {directional_correct:.4f} ({directional_correct*100:.2f}%)")
+print(f"Combined directional accuracy: {directional_correct:.4f} ({directional_correct*100:.2f}%)")
 
-# Calculate Mean Absolute Error (MAE)
 mae = np.mean(np.abs(all_preds - all_actuals))
-print(f"Combined MAE across all folds: {mae:.6f}")
+print(f"Combined MAE: {mae:.6f}")
 
-# Calculate R-squared
 ss_total = np.sum((all_actuals - np.mean(all_actuals))**2)
 ss_residual = np.sum((all_actuals - all_preds)**2)
 r2 = 1 - (ss_residual / ss_total)
-print(f"Combined R-squared across all folds: {r2:.6f}")
+print(f"Combined R-squared: {r2:.6f}")
 
-# Calculate sector-specific metrics
-sector_metrics = {}
-for fold_idx, (train_ids, val_ids) in enumerate(kfold.split(dataset)):
-    # Load the trained model for this fold
-    fold_model = FinBERTRegressor(num_sectors=len(sector2id)).to(device)
-    fold_model.load_state_dict(torch.load(f"policy_return_model_fold_{fold_idx}.pt", map_location=device))
-    fold_model.eval()
-    
-    # Create validation loader for this fold
-    val_sampler = SubsetRandomSampler(val_ids)
-    val_loader = DataLoader(dataset, batch_size=1, sampler=val_sampler)
-    
-    # Get predictions by sector
-    with torch.no_grad():
-        for report_emb, sector_id, targets in val_loader:
-            report_emb = report_emb.to(device)
-            sector_id = sector_id.to(device)
-            targets = targets.to(device)
-            
-            # Get predictions
-            preds = fold_model(report_emb, sector_id)
-            
-            # Get sector name
-            sector_name = list(sector2id.keys())[sector_id.item()]
-            
-            # Initialize sector in the metrics dict if it doesn't exist
-            if sector_name not in sector_metrics:
-                sector_metrics[sector_name] = {'preds': [], 'actuals': []}
-            
-            # Store predictions and actual values
-            sector_metrics[sector_name]['preds'].append(preds.item())
-            sector_metrics[sector_name]['actuals'].append(targets.item())
-
-# Calculate and print sector-specific directional accuracy
-print("\nSector-specific directional accuracy:")
-print("=====================================")
-all_sector_accs = []
-for sector_name, data in sector_metrics.items():
-    sector_preds = np.array(data['preds'])
-    sector_actuals = np.array(data['actuals'])
-    
-    # Skip sectors with too few samples
-    if len(sector_preds) < 5:
-        continue
-        
-    dir_acc = ((sector_preds > 0) == (sector_actuals > 0)).mean()
-    mae = np.mean(np.abs(sector_preds - sector_actuals))
-    all_sector_accs.append((sector_name, dir_acc, mae, len(sector_preds)))
-    
-# Sort by directional accuracy
-all_sector_accs.sort(key=lambda x: x[1], reverse=True)
-
-# Print in a table format
-print(f"{'Sector':<15} {'Dir. Accuracy':<15} {'MAE':<10} {'Samples':<10}")
-print("-" * 50)
-for sector_name, dir_acc, mae, n_samples in all_sector_accs:
-    print(f"{sector_name:<15} {dir_acc*100:>5.2f}%{'':<9} {mae:<10.6f} {n_samples:<10}")
-
-
-# Calculating combined directional accuracy across all folds...
-# Combined directional accuracy across all folds: 0.6316 (63.16%)
-# Combined MAE across all folds: 0.056369
-# Combined R-squared across all folds: 0.021674
-
-# Sector-specific directional accuracy:
-# =====================================
-# Sector          Dir. Accuracy   MAE        Samples   
-# --------------------------------------------------
-# LIFEINSU        85.71%          0.052352   7         
-# HYDROPOWER      78.57%          0.077600   14        
-# OTHERS          71.43%          0.047259   14        
-# MICROFINANCE    71.43%          0.036530   7         
-# TRADING         66.67%          0.047060   9         
-# FINANCE         64.29%          0.067343   14        
-# HOTELS          64.29%          0.046127   14        
-# BANKING         64.29%          0.054003   14        
-# DEVBANK         61.54%          0.047332   13        
-# NONLIFEINSU     57.14%          0.049129   7         
-# NEPSE           54.55%          0.049716   22        
-# MANUFACTURE     38.46%          0.072826   13
-# 
-# 
-# 
-# Sector-specific directional accuracy:
-# =====================================
-# Sector          Dir. Accuracy   MAE        Samples   
-# --------------------------------------------------
-# LIFEINSU        85.71%          0.132518   7         
-# MANUFACTURE     76.92%          0.065170   13        
-# BANKING         71.43%          0.065467   14        
-# HYDROPOWER      71.43%          0.077146   14        
-# NONLIFEINSU     57.14%          0.053593   7         
-# MICROFINANCE    57.14%          0.111719   7         
-# TRADING         55.56%          0.083539   9         
-# HOTELS          50.00%          0.056879   14        
-# NEPSE           50.00%          0.068538   22        
-# FINANCE         50.00%          0.143178   14        
-# DEVBANK         46.15%          0.102191   13        
-# OTHERS          42.86%          0.068712   14       
+# Save the best model and sector mappings
+torch.save(best_model, "policy_return_model.pt")
+np.save("sector_mapping.npy", sector2id)
+print("Best model and sector mapping saved!")
