@@ -1,5 +1,4 @@
-# Create README.md file
-readme_content = """# 📈 Monetary Policy-Driven Stock Sector Prediction
+# 📈 Monetary Policy-Driven Stock Sector Prediction
 
 A machine learning system that predicts stock sector returns based on monetary policy reports using FinBERT embeddings and neural networks.
 
