@@ -224,10 +224,3 @@ This project is licensed under the MIT License
 ---
 
 ⭐ **Star this repo if you find it useful!** ⭐
-"""
-
-# Write to README.md file
-with open('README.md', 'w', encoding='utf-8') as f:
-    f.write(readme_content)
-
-print("README.md file created successfully!")
